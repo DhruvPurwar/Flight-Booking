@@ -5,24 +5,37 @@ const db = require("../models");
 const { ServerConfig } = require("../config");
 const AppError = require("../utils/errors/app-error");
 
+const bookingRepository = new BookingRepository();
+
 async function createBooking(data) {
-  // Created a promise , now controller will wait for the promise to return and then move ahead.
-  // Since we have a callback, code wont run line by line
-  return new Promise((resolve, reject) => {
-    const result = db.sequelize.transaction(async function bookingImpl(t) {
-      const flight = await axios.get(
-        `${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}`
-      );
-      const flightData = flight.data.data;
-      console.log(flightData);
-      if (data.noOfSeats > flightData.totalSeats) {
-        reject(
-          new AppError("Not enough seats available", StatusCodes.BAD_REQUEST)
-        );
+  const transaction = await db.sequelize.transaction(); // unmanaged transaction
+  try {
+    const flight = await axios.get(
+      `${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}`
+    );
+    const flightData = flight.data.data;
+    console.log(flightData);
+    if (data.noOfSeats > flightData.totalSeats) {
+      throw new AppError("Not enough seats available", StatusCodes.BAD_REQUEST);
+    }
+
+    const totalBillingAmount = flightData.price * data.noOfSeats;
+    const bookingPayload = { ...data, totalCost: totalBillingAmount };
+    const booking = await bookingRepository.create(bookingPayload, transaction);
+
+    await axios.patch(
+      `${ServerConfig.FLIGHT_SERVICE}/api/v1/flights/${data.flightId}/seats`,
+      {
+        seats: data.noOfSeats,
       }
-      resolve(true);
-    });
-  });
+    );
+    // console.log(totalBillingAmount);
+    await transaction.commit(); // manually commit
+    return booking;
+  } catch (error) {
+    await transaction.rollback(); // manually rollback
+    throw error;
+  }
 }
 
 module.exports = { createBooking };
