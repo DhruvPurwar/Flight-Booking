@@ -2,7 +2,7 @@ const axios = require("axios");
 const { StatusCodes } = require("http-status-codes");
 const { BookingRepository } = require("../repositories");
 const db = require("../models");
-const { ServerConfig } = require("../config");
+const { ServerConfig, Queue } = require("../config");
 const AppError = require("../utils/errors/app-error");
 const { Enums } = require("../utils/common");
 const { BOOKED, CANCELLED, PENDING, INITIATED } = Enums.BOOKING_STATUS;
@@ -33,6 +33,7 @@ async function createBooking(data) {
     );
     // console.log(totalBillingAmount);
     await transaction.commit(); // manually commit
+
     return booking;
   } catch (error) {
     await transaction.rollback(); // manually rollback
@@ -83,6 +84,11 @@ async function makePayment(data) {
       transaction
     );
     await transaction.commit(); //sadd return response
+    Queue.sendData({
+      subject: "Flight booked",
+      text: `Booking done successfully ${data.bookingId}`,
+      recipientEmail: "dhruvpurwar15@gmail.com",
+    });
   } catch (error) {
     await transaction.rollback(); // manually rollback
     throw error;
